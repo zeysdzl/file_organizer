@@ -9,15 +9,15 @@ class FileOrganizer:
     def __init__(self, target_directory):
         self.target_dir = Path(target_directory)
         
-        # Desteklenen uzantılar (küçük harf)
+        # Supported extensions (lowercase)
         self.img_extensions = {'.jpg', '.jpeg', '.png', '.heic', '.bmp', '.tiff', '.webp'}
         self.vid_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.m4v'}
 
     def get_date_taken(self, file_path):
         """
-        Dosyanın tarihini bulur.
-        1. Fotoğraflar için EXIF verisine (çekildiği tarih) bakar.
-        2. Bulamazsa veya videoysa dosya oluşturma/değiştirme tarihine bakar.
+        Retrieves the date the file was taken/created.
+        1. For photos, checks EXIF data (Date Time Original).
+        2. If not found or if it's a video, uses the file system creation/modification time.
         """
         extension = file_path.suffix.lower()
 
@@ -36,12 +36,12 @@ class FileOrganizer:
             except Exception:
                 pass
 
-        # EXIF yoksa veya videoysa dosya sistemindeki değiştirilme tarihini al
+        # If no EXIF or it is a video, get modification time from file system
         timestamp = os.path.getmtime(file_path)
         return datetime.fromtimestamp(timestamp)
 
     def get_file_prefix(self, file_path):
-        """Dosya türüne göre önek (img veya vid) döndürür"""
+        """Returns prefix (img or vid) based on file type"""
         extension = file_path.suffix.lower()
         if extension in self.img_extensions:
             return "img"
@@ -51,29 +51,29 @@ class FileOrganizer:
 
     def run(self):
         if not self.target_dir.exists():
-            print(f"HATA: '{self.target_dir}' klasörü bulunamadı!")
+            print(f"ERROR: Directory '{self.target_dir}' not found!")
             return
 
-        print(f"Hedef Klasör: {self.target_dir}")
-        print("Dosyalar okunuyor ve tarihlerine göre sıralanıyor (bu biraz sürebilir)...")
+        print(f"Target Directory: {self.target_dir}")
+        print("Reading files and sorting by date (this may take a while)...")
         
-        # 1. Tüm dosyaları topla (Gizli dosyalar hariç)
+        # 1. Collect all files (excluding hidden files)
         files = [f for f in self.target_dir.iterdir() if f.is_file() and not f.name.startswith('.')]
         
-        # 2. Dosyaları çekilme tarihine göre eskiden yeniye sırala
-        # Bu sayede _1, _2 sıralaması sabah çekilenden akşama doğru gider.
+        # 2. Sort files by taken date from oldest to newest
+        # This ensures the _1, _2 sequence follows chronological order.
         files_with_dates = []
         for f in files:
             date = self.get_date_taken(f)
             files_with_dates.append((f, date))
         
-        # Tarihe göre (eskiden yeniye) sırala
+        # Sort by date
         files_with_dates.sort(key=lambda x: x[1])
 
-        print(f"Toplam {len(files_with_dates)} dosya işlenecek.\n")
+        print(f"Total {len(files_with_dates)} files will be processed.\n")
 
-        # Günlük sayaçları tutacak sözlük
-        # Örn: {'20110905': 1} -> 5 Eylül 2011 için sayaç 1'den başlar
+        # Dictionary to hold daily counters
+        # Ex: {'20110905': 1} -> Counter starts at 1 for September 5, 2011
         day_counters = {}
         
         count = 0
@@ -82,48 +82,48 @@ class FileOrganizer:
         for file_path, date_obj in files_with_dates:
             prefix = self.get_file_prefix(file_path)
             
-            # Desteklenmeyen dosya türü ise atla
+            # Skip unsupported file types
             if not prefix:
                 continue
 
-            # Tarih formatı: YYYYMMDD
+            # Date format: YYYYMMDD
             date_key = date_obj.strftime("%Y%m%d")
             
-            # Bu tarih için sayaç başlat veya varsa al
+            # Initialize or increment counter for this date
             if date_key not in day_counters:
                 day_counters[date_key] = 1
             
             current_count = day_counters[date_key]
             
-            # Sayacı bir sonraki dosya için artırıyoruz
+            # Increment counter for the next file
             day_counters[date_key] += 1
 
-            # Yeni isim: img_YYYYMMDD_SAYAÇ.uzanti
+            # New name: img_YYYYMMDD_COUNTER.extension
             extension = file_path.suffix.lower()
             new_filename = f"{prefix}_{date_key}_{current_count}{extension}"
             new_path = self.target_dir / new_filename
             
-            # Eğer dosya zaten istenen isimdeyse işlem yapma
+            # If file already has the correct name, skip
             if new_path == file_path:
                 skipped += 1
                 continue
             
-            # Eğer hedef isimde BAŞKA bir dosya varsa (isim çakışması)
-            # Sayacı artırarak boş yer bulana kadar devam et
+            # If the target name exists but it's NOT the same file (name collision)
+            # Increment counter until a free slot is found
             while new_path.exists() and new_path != file_path:
                 current_count = day_counters[date_key]
                 day_counters[date_key] += 1
                 new_filename = f"{prefix}_{date_key}_{current_count}{extension}"
                 new_path = self.target_dir / new_filename
 
-            # Dosyayı yeniden adlandır
+            # Rename the file
             try:
                 file_path.rename(new_path)
                 print(f"[OK] {file_path.name} -> {new_path.name}")
                 count += 1
             except Exception as e:
-                print(f"[HATA] {file_path.name} değiştirilemedi: {e}")
+                print(f"[ERROR] Could not rename {file_path.name}: {e}")
 
-        print(f"\nİşlem Tamamlandı!")
-        print(f"Yeniden Adlandırılan: {count}")
-        print(f"Pas Geçilen: {skipped}")
+        print(f"\nOperation Completed!")
+        print(f"Renamed: {count}")
+        print(f"Skipped: {skipped}")
